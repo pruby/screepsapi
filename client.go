@@ -33,6 +33,7 @@ type Credentials struct {
 	Email     string `json:"email"`
 	Password  string `json:"password"`
 	ServerURL string `json:"serverURL"`
+	Token     string `json:"token"`
 }
 
 func NewClient(credentials Credentials) (*Client, error) {
@@ -49,11 +50,17 @@ func NewClient(credentials Credentials) (*Client, error) {
 		httpClient: httpClient,
 		serverURL:  serverURL,
 	}
-
-	err = client.SignIn(credentials.Email, credentials.Password)
-	if err != nil {
-		return nil, fmt.Errorf("failed to login: %s", err)
-	}
+        
+        if credentials.Token == "" {
+            err = client.SignIn(credentials.Email, credentials.Password)
+            if err != nil {
+                    return nil, fmt.Errorf("failed to login: %s", err)
+            }
+        } else {
+            client.tokenLock.Lock()
+            client.token = credentials.Token
+            client.tokenLock.Unlock()
+        }
 
 	return client, nil
 }
