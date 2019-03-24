@@ -71,7 +71,7 @@ type MeResponse struct {
 	Credits            int                `json:"credits"`
 	LastRespawnDate    int                `json:"lastRespawnDate"`
 	PromoPeriodUntil   int                `json:"promoPeriodUntil"`
-	Money              int                `json:"money"`
+	Money              float64            `json:"money"`
 	SubscriptionTokens int                `json:"subscriptionTokens"`
 	GitHub             screepstype.GitHub `json:"github"`
 	Steam              screepstype.Steam  `json:"steam"`
