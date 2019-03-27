@@ -126,6 +126,35 @@ func (ws *webSocket) connect() error {
 	return nil
 }
 
+func (ws *webSocket) reconnect() error {
+    fmt.Errorf("Reconnecting websocket after issue...")
+    
+    if ws.conn != nil {
+        ws.conn.Close() // Best attempt
+        ws.conn = nil
+    }
+    
+    err := ws.connect()
+    if err != nil {
+        close(ws.interrupt)
+        ws.interrupt = make(chan struct{})
+        ws.authLock.Lock()
+        ws.authenticated = false
+        ws.sendQueue = ws.sendQueue[:0]
+        ws.authLock.Unlock()
+        
+        return nil
+    }
+    
+    for channel, _ := range(ws.subscriptions) {
+        err := ws.send(fmt.Sprintf(subscribeFormat, channel))
+        if err != nil {
+                return fmt.Errorf("failed to subscribe: %s", err)
+        }
+    }
+    return nil
+}
+
 func (ws *webSocket) authenticate(token string) error {
 	err := ws.conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(authFormat, ws.token)))
 	if err != nil {
@@ -214,17 +243,19 @@ func (ws *webSocket) receiveFrame() error {
 	defer func() {
 		r := recover()
 		if r != nil {
-			err, ok := r.(error)
-			if !ok {
-				panic(r)
-			}
-			fmt.Printf("err exiting goroutine: %s\n", err)
+                    ws.reconnect()
 		}
 	}()
 
 	data, err := ws.receive()
 	if err != nil {
-		return fmt.Errorf("failed to receive data: %s", err)
+                err := ws.reconnect()
+                return fmt.Errorf("failed to reconnect after failure to receive data: %s", err)
+                
+                data, err = ws.receive()
+                if err != nil {
+                    return fmt.Errorf("failed to receive data: %s", err)
+                }
 	}
 
 	if len(data) < len(screepstype.GzipPrefix)+2 {
