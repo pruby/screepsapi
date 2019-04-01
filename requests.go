@@ -17,6 +17,7 @@ type CheckUniqueObjectNameRequest struct {
 }
 
 type ConsoleRequest struct {
+        Shard string `json:"shard"`
 	Expression string `json:"expression"`
 }
 

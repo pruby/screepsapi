@@ -20,14 +20,12 @@ func (c *Client) Branches() (BranchesResponse, error) {
 
 func (c *Client) Console(shard, expression string) (InsertResponse, error) {
 	consoleReq := ConsoleRequest{
+                Shard: shard,
 		Expression: expression,
 	}
 	insertResp := InsertResponse{}
 
-	values := make(url.Values)
-	values.Add(shardKey, shard)
-
-	err := c.post(consolePath, &consoleReq, &insertResp, values, http.StatusOK)
+	err := c.post(consolePath, &consoleReq, &insertResp, make(url.Values), http.StatusOK)
 	if err != nil {
 		return insertResp, fmt.Errorf("failed to send console: %s", err)
 	}
