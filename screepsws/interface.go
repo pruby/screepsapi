@@ -20,7 +20,7 @@ type WebSocket interface {
 	UnsubscribeConsole(userID string) error
 	SubscribeCPU(userID string) (<-chan CPUResponse, error)
 	UnsubscribeCPU(userID string) error
-	SubscribeMemory(userID, path string) (<-chan MemoryResponse, error)
+	SubscribeMemory(userID, path string) (<-chan interface{}, error)
 	UnsubscribeMemory(userID, path string) error
 	SubscribeMessage(userID, respondentID string) (<-chan MessageResponse, error)
 	UnsubscribeMessage(userID, respondentID string) error
@@ -30,4 +30,6 @@ type WebSocket interface {
 	UnsubscribeNewMessage(userID string) error
 	SubscribeSetActiveBranch(userID string) (<-chan SetActiveBranchResponse, error)
 	UnsubscribeSetActiveBranch(userID string) error
+	
+	Wait() error
 }

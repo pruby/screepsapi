@@ -1,67 +1,74 @@
 package screepsws
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"strings"
-	"sync"
+    "encoding/json"
+    "fmt"
+    "net/url"
+    "strings"
+    "sync"
+    "context"
 
-	"github.com/gorilla/websocket"
-	"github.com/hinshun/screepsapi/screepstype"
+    "github.com/gorilla/websocket"
+    "github.com/hinshun/screepsapi/screepstype"
+    tomb "gopkg.in/tomb.v2"
 )
 
 type webSocket struct {
-	conn          *websocket.Conn
-	serverURL     *url.URL
-	token         string
-	interrupt     chan struct{}
-	authenticated bool
-	authLock      sync.RWMutex
-	sendQueue     []string
-	subscriptions map[string]chan []byte
+    conn          *websocket.Conn
+    serverURL     *url.URL
+    token         string
+    authenticated bool
+    authLock      sync.RWMutex
+    sendQueue     []string
+    subscriptions map[string]chan []byte
+    tomb          *tomb.Tomb
 }
 
-func NewWebSocket(rawServerURL, token string) (WebSocket, error) {
-	serverURL, err := url.Parse(rawServerURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse server url '%s': %s", rawServerURL, err)
-	}
+func NewWebSocket(rawServerURL, token string, lifetime context.Context) (WebSocket, error) {
+    tomb, _ := tomb.WithContext(lifetime)
+    
+    serverURL, err := url.Parse(rawServerURL)
+    if err != nil {
+            return nil, fmt.Errorf("failed to parse server url '%s': %s", rawServerURL, err)
+    }
 
-	ws := &webSocket{
-		serverURL:     serverURL,
-		token:         token,
-		interrupt:     make(chan struct{}),
-		subscriptions: make(map[string]chan []byte),
-	}
+    ws := &webSocket{
+            serverURL:     serverURL,
+            token:         token,
+            subscriptions: make(map[string]chan []byte),
+            tomb:          tomb,
+    }
 
-	err = ws.connect()
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to '%s': %s", serverURL.String(), err)
-	}
+    err = ws.connect()
+    if err != nil {
+            return nil, fmt.Errorf("failed to connect to '%s': %s", serverURL.String(), err)
+    }
 
-	return ws, nil
+    return ws, nil
 }
 
 func (ws *webSocket) Close() error {
-	if ws.conn == nil {
-		return fmt.Errorf("websocket is not connected")
-	}
+        if ws.conn == nil {
+                return fmt.Errorf("websocket is not connected")
+        }
 
-	close(ws.interrupt)
-	ws.interrupt = make(chan struct{})
-	ws.authLock.Lock()
-	ws.authenticated = false
-	ws.sendQueue = ws.sendQueue[:0]
-	ws.authLock.Unlock()
+        ws.tomb.Killf("Closed")
+        ws.authLock.Lock()
+        ws.authenticated = false
+        ws.sendQueue = ws.sendQueue[:0]
+        ws.authLock.Unlock()
 
-	err := ws.conn.Close()
-	if err != nil {
-		return err
-	}
-	ws.conn = nil
+        err := ws.conn.Close()
+        if err != nil {
+                return err
+        }
+        ws.conn = nil
 
-	return nil
+        return nil
+}
+
+func (ws *webSocket) Wait() error {
+        return ws.tomb.Wait()
 }
 
 func (ws *webSocket) Subscribe(channel string) (<-chan []byte, error) {
@@ -75,7 +82,7 @@ func (ws *webSocket) Subscribe(channel string) (<-chan []byte, error) {
 		return nil, fmt.Errorf("failed to subscribe: %s", err)
 	}
 
-	dataChan := make(chan []byte)
+	dataChan := make(chan []byte, 32)
 	ws.subscriptions[channel] = dataChan
 
 	return dataChan, nil
@@ -121,38 +128,9 @@ func (ws *webSocket) connect() error {
 		return fmt.Errorf("failed to enable gzip: %s", err)
 	}
 
-	go ws.listen()
+	ws.tomb.Go(ws.listen)
 
 	return nil
-}
-
-func (ws *webSocket) reconnect() error {
-    fmt.Errorf("Reconnecting websocket after issue...")
-    
-    if ws.conn != nil {
-        ws.conn.Close() // Best attempt
-        ws.conn = nil
-    }
-    
-    err := ws.connect()
-    if err != nil {
-        close(ws.interrupt)
-        ws.interrupt = make(chan struct{})
-        ws.authLock.Lock()
-        ws.authenticated = false
-        ws.sendQueue = ws.sendQueue[:0]
-        ws.authLock.Unlock()
-        
-        return nil
-    }
-    
-    for channel, _ := range(ws.subscriptions) {
-        err := ws.send(fmt.Sprintf(subscribeFormat, channel))
-        if err != nil {
-                return fmt.Errorf("failed to subscribe: %s", err)
-        }
-    }
-    return nil
 }
 
 func (ws *webSocket) authenticate(token string) error {
@@ -201,12 +179,11 @@ func (ws *webSocket) receive() (data []byte, err error) {
 	return
 }
 
-func (ws *webSocket) listen() {
+func (ws *webSocket) listen() error {
 	for i := 0; i < 4; i++ {
 		_, err := ws.receive()
 		if err != nil {
-			fmt.Printf("failed to receive connection handshake: %s\n", err)
-			return
+			return fmt.Errorf("failed to receive connection handshake: %s\n", err)
 		}
 	}
 
@@ -218,22 +195,24 @@ func (ws *webSocket) listen() {
 		data := ws.sendQueue[0]
 		err := ws.send(data)
 		if err != nil {
-			fmt.Printf("failed to send data off queue '%s': %s\n", data, err)
+			return fmt.Errorf("failed to send data off queue '%s': %s\n", data, err)
 		}
 		ws.sendQueue = ws.sendQueue[1:]
 	}
 
 	for {
 		select {
-		case <-ws.interrupt:
-			return
+		case <-ws.tomb.Dying():
+			return nil
 		default:
 			err := ws.receiveFrame()
 			if err != nil {
-				fmt.Printf("failed to receive frame: %s\n", err)
+				return fmt.Errorf("failed to receive frame: %s\n", err)
 			}
 		}
 	}
+	
+	return nil
 }
 
 func (ws *webSocket) receiveFrame() error {
@@ -243,19 +222,13 @@ func (ws *webSocket) receiveFrame() error {
 	defer func() {
 		r := recover()
 		if r != nil {
-                    ws.reconnect()
+                    ws.tomb.Killf("%v", r)
 		}
 	}()
 
 	data, err := ws.receive()
 	if err != nil {
-                err := ws.reconnect()
-                return fmt.Errorf("failed to reconnect after failure to receive data: %s", err)
-                
-                data, err = ws.receive()
-                if err != nil {
-                    return fmt.Errorf("failed to receive data: %s", err)
-                }
+                return fmt.Errorf("failed to receive data: %s", err)
 	}
 
 	if len(data) < len(screepstype.GzipPrefix)+2 {

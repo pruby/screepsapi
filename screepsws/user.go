@@ -83,18 +83,18 @@ func (ws *webSocket) UnsubscribeCPU(userID string) error {
 	return ws.Unsubscribe(fmt.Sprintf(cpuFormat, userID))
 }
 
-func (ws *webSocket) SubscribeMemory(userID, path string) (<-chan MemoryResponse, error) {
+func (ws *webSocket) SubscribeMemory(userID, path string) (<-chan interface{}, error) {
 	channel := fmt.Sprintf(memoryFormat, userID, path)
 	dataChan, err := ws.Subscribe(channel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to '%s'", channel)
 	}
 
-	respChan := make(chan MemoryResponse)
+	respChan := make(chan interface{})
 	go func() {
 		defer close(respChan)
 		for data := range dataChan {
-			resp := MemoryResponse{}
+			var resp interface{}
 			closed := UnmarshalResponse(data, &resp)
 			if closed {
 				return
