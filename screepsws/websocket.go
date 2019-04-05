@@ -243,7 +243,6 @@ func (ws *webSocket) receiveFrame() error {
 	}
 
 	if string(data[:len(screepstype.GzipPrefix)]) == screepstype.GzipPrefix {
-                oldLen := len(data)
 		data, err = ws.handleGzippedData(data)
 		if err != nil {
 			return fmt.Errorf("failed to handle gzipped data: %s", err)
