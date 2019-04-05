@@ -20,8 +20,8 @@ type WebSocket interface {
 	UnsubscribeConsole(userID string) error
 	SubscribeCPU(userID string) (<-chan CPUResponse, error)
 	UnsubscribeCPU(userID string) error
-	SubscribeMemory(userID, path string) (<-chan interface{}, error)
-	UnsubscribeMemory(userID, path string) error
+	SubscribeMemory(userID, shard, path string) (<-chan interface{}, error)
+	UnsubscribeMemory(userID, shard, path string) error
 	SubscribeMessage(userID, respondentID string) (<-chan MessageResponse, error)
 	UnsubscribeMessage(userID, respondentID string) error
 	SubscribeMoney(userID string) (<-chan int, error)

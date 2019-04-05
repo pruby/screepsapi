@@ -21,6 +21,7 @@ type webSocket struct {
     authLock      sync.RWMutex
     sendQueue     []string
     subscriptions map[string]chan []byte
+    subLock      sync.Mutex
     tomb          *tomb.Tomb
 }
 
@@ -72,6 +73,9 @@ func (ws *webSocket) Wait() error {
 }
 
 func (ws *webSocket) Subscribe(channel string) (<-chan []byte, error) {
+        ws.subLock.Lock()
+        defer ws.subLock.Unlock()
+        
 	_, exists := ws.subscriptions[channel]
 	if exists {
 		return nil, fmt.Errorf("channel '%s' already subscribed", channel)
@@ -89,6 +93,9 @@ func (ws *webSocket) Subscribe(channel string) (<-chan []byte, error) {
 }
 
 func (ws *webSocket) Unsubscribe(channel string) error {
+        ws.subLock.Lock()
+        defer ws.subLock.Unlock()
+        
 	err := ws.send(fmt.Sprintf(unsubscribeFormat, channel))
 	if err != nil {
 		return fmt.Errorf("failed to unsubscribe: %s", err)
@@ -236,6 +243,7 @@ func (ws *webSocket) receiveFrame() error {
 	}
 
 	if string(data[:len(screepstype.GzipPrefix)]) == screepstype.GzipPrefix {
+                oldLen := len(data)
 		data, err = ws.handleGzippedData(data)
 		if err != nil {
 			return fmt.Errorf("failed to handle gzipped data: %s", err)
@@ -253,6 +261,7 @@ func (ws *webSocket) receiveFrame() error {
 func (ws *webSocket) handleData(data []byte) error {
 	resp := make([]json.RawMessage, 2)
 	err := json.Unmarshal(data, &resp)
+        
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal received data '%s': %s", data, err)
 	}
@@ -261,12 +270,18 @@ func (ws *webSocket) handleData(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal channel name: %s", err)
 	}
+        var keys []string
+        for sub, _ := range ws.subscriptions {
+            keys = append(keys, sub)
+        }
 
 	channelData, err := resp[1].MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("failed to marshal channel data: %s", err)
 	}
 
+        ws.subLock.Lock()
+        defer ws.subLock.Unlock()
 	subscription, ok := ws.subscriptions[string(channel[1:len(channel)-1])]
 	if ok {
 		subscription <- channelData

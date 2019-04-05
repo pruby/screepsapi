@@ -19,7 +19,7 @@ const (
 	consoleFormat = "user:%s/console"
 	cpuFormat     = "user:%s/cpu"
 	// TODO(hinshun): unimplemented
-	memoryFormat = "user:%s/memory/%s"
+	memoryFormat = "user:%s/memory/%s/%s"
 	// TODO(hinshun): unimplemented
 	messageFormat = "user:%s/message:%s"
 	moneyFormat   = "user:%s/money"
